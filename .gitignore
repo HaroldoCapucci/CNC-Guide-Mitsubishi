@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.so
+*.egg-info/
+dist/
+build/
+*.nc
+*.log
+desktop/__pycache__/
+termux/__pycache__/
+scripts/__pycache__/
