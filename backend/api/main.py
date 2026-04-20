@@ -250,5 +250,16 @@ def handle_start_task(data):
 
     socketio.start_background_task(ai_work)
 
+# Servir frontend estático
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve(path):
+    import os
+    static_folder = os.path.join(os.path.dirname(__file__), "..", "static")
+    if path != "" and os.path.exists(os.path.join(static_folder, path)):
+        return send_from_directory(static_folder, path)
+    else:
+        return send_from_directory(static_folder, "index.html")
+
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

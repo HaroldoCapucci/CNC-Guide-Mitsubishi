@@ -15,9 +15,8 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-const API = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5000' 
-  : `http://${window.location.hostname}:5000`;
+// Fixo para localhost no Termux
+const API = 'http://localhost:5000';
 
 function App() {
   const [gcode, setGcode] = useState(
@@ -108,7 +107,7 @@ function App() {
       setLastMessage({ agent: data.agent, text: data.message });
       fetchTasks();
     });
-    newSocket.on('connect_error', () => setError('Falha na conexão WebSocket'));
+    newSocket.on('connect_error', () => setError('Falha na conexão WebSocket. Verifique se o backend está rodando.'));
     return () => newSocket.close();
   }, []);
 
