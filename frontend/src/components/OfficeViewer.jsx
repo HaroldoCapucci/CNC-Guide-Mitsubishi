@@ -13,14 +13,12 @@ const OfficeViewer = ({ commands, points }) => {
   const trajectoryRef = useRef(null);
   const [agentsState, setAgentsState] = useState({});
 
-  // Socket para receber estado dos agentes (opcional, mas útil)
   useEffect(() => {
     const socket = io('http://localhost:5000');
     socket.on('agents_state', (state) => setAgentsState(state));
     return () => socket.close();
   }, []);
 
-  // Inicialização da cena 3D
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -29,8 +27,8 @@ const OfficeViewer = ({ commands, points }) => {
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(45, containerRef.current.clientWidth / containerRef.current.clientHeight, 0.1, 1000);
-    camera.position.set(20, 15, 30);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(25, 15, 35);
+    camera.lookAt(0, 2, 0);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -45,7 +43,6 @@ const OfficeViewer = ({ commands, points }) => {
     controls.target.set(0, 2, 0);
     controlsRef.current = controls;
 
-    // Iluminação
     scene.add(new THREE.AmbientLight(0x404060, 0.6));
     const dirLight = new THREE.DirectionalLight(0xffeedd, 1);
     dirLight.position.set(10, 20, 5);
@@ -66,33 +63,30 @@ const OfficeViewer = ({ commands, points }) => {
     fillLight.position.set(-5, 5, 10);
     scene.add(fillLight);
 
-    // Piso
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x336699, roughness: 0.7, metalness: 0.1 });
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), floorMat);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = 0;
     floor.receiveShadow = true;
     scene.add(floor);
     
-    const gridHelper = new THREE.GridHelper(40, 20, 0x88aaff, 0x334466);
+    const gridHelper = new THREE.GridHelper(50, 25, 0x88aaff, 0x334466);
     gridHelper.position.y = 0.01;
     scene.add(gridHelper);
 
-    // Paredes simples
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a3a5a, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
-    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(40, 10), wallMat);
-    backWall.position.set(0, 5, -20);
+    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(50, 10), wallMat);
+    backWall.position.set(0, 5, -25);
     scene.add(backWall);
-    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(40, 10), wallMat);
+    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(50, 10), wallMat);
     leftWall.rotation.y = Math.PI / 2;
-    leftWall.position.set(-20, 5, 0);
+    leftWall.position.set(-25, 5, 0);
     scene.add(leftWall);
-    const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(40, 10), wallMat);
+    const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(50, 10), wallMat);
     rightWall.rotation.y = -Math.PI / 2;
-    rightWall.position.set(20, 5, 0);
+    rightWall.position.set(25, 5, 0);
     scene.add(rightWall);
 
-    // Função para criar mesa com agente
     const createDesk = (x, z, agentName) => {
       const group = new THREE.Group();
       
@@ -126,7 +120,6 @@ const OfficeViewer = ({ commands, points }) => {
       stand.receiveShadow = true;
       group.add(stand);
       
-      // Agente (esfera)
       const agentMat = new THREE.MeshStandardMaterial({ color: 0x3399ff });
       const agent = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 16), agentMat);
       agent.position.set(0, 2.0, 0.8);
@@ -141,11 +134,13 @@ const OfficeViewer = ({ commands, points }) => {
       return group;
     };
 
-    scene.add(createDesk(-8, 0, 'Arnaldo'));
-    scene.add(createDesk(0, 0, 'Beatriz'));
-    scene.add(createDesk(8, 0, 'Carlos'));
+    // Posicionar mesas: Arnaldo (-10,0), Beatriz (-3,0), Carlos (4,0), Diana (11,0), Eduardo (18,0)
+    scene.add(createDesk(-12, 0, 'Arnaldo'));
+    scene.add(createDesk(-4, 0, 'Beatriz'));
+    scene.add(createDesk(4, 0, 'Carlos'));
+    scene.add(createDesk(12, 0, 'Diana'));
+    scene.add(createDesk(20, 0, 'Eduardo'));
 
-    // Grupo para a trajetória
     const trajectoryGroup = new THREE.Group();
     scene.add(trajectoryGroup);
     trajectoryRef.current = trajectoryGroup;
@@ -173,7 +168,6 @@ const OfficeViewer = ({ commands, points }) => {
     };
   }, []);
 
-  // Atualiza cores dos agentes conforme estado recebido via socket ou props
   useEffect(() => {
     Object.entries(agentsState).forEach(([name, state]) => {
       const agent = agentsRef.current[name];
@@ -187,7 +181,6 @@ const OfficeViewer = ({ commands, points }) => {
           default: color = 0x3399ff;
         }
         agent.material.color.setHex(color);
-        // Pulsa se estiver pensando
         if (state.status === 'thinking') {
           const scale = 1 + Math.sin(Date.now() * 0.01) * 0.1;
           agent.scale.set(scale, scale, scale);
@@ -198,17 +191,12 @@ const OfficeViewer = ({ commands, points }) => {
     });
   }, [agentsState]);
 
-  // Atualiza trajetória quando points mudam
   useEffect(() => {
     const group = trajectoryRef.current;
     if (!group) return;
-    
-    // Remove linha antiga
     while(group.children.length) group.remove(group.children[0]);
-    
     if (!points || points.length < 2) return;
-    
-    const positions = points.flatMap(p => [p[0]/10, p[1]/10 + 3, p[2]/10]); // escala e elevação
+    const positions = points.flatMap(p => [p[0]/10, p[1]/10 + 3, p[2]/10]);
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     const mat = new THREE.LineBasicMaterial({ color: 0xffaa00 });

@@ -2,6 +2,18 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import OfficeViewer from './components/OfficeViewer';
 import { io } from 'socket.io-client';
+import { Bar } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 const API = window.location.hostname === 'localhost' 
   ? 'http://localhost:5000' 
@@ -11,22 +23,7 @@ function App() {
   const [gcode, setGcode] = useState(
     'G00 X0 Y0 Z0\n' +
     'G01 Z-2 F200\n' +
-    'X10 Y0\n' +
-    'X10 Y10\n' +
-    'X0 Y10\n' +
-    'X0 Y20\n' +
-    'X20 Y20\n' +
-    'X20 Y0\n' +
-    'X30 Y0\n' +
-    'X30 Y30\n' +
-    'X0 Y30\n' +
-    'X0 Y40\n' +
-    'X40 Y40\n' +
-    'X40 Y0\n' +
-    'X50 Y0\n' +
-    'X50 Y50\n' +
-    'X0 Y50\n' +
-    'X0 Y0\n' +
+    'X10 Y0\nX10 Y10\nX0 Y10\nX0 Y20\nX20 Y20\nX20 Y0\nX30 Y0\nX30 Y30\nX0 Y30\nX0 Y40\nX40 Y40\nX40 Y0\nX50 Y0\nX50 Y50\nX0 Y50\nX0 Y0\n' +
     'G00 Z10'
   );
   const [commands, setCommands] = useState([]);
@@ -38,12 +35,12 @@ function App() {
   const [agentsState, setAgentsState] = useState({});
   const [error, setError] = useState(null);
   const [lastMessage, setLastMessage] = useState(null);
-  const [tasks, setTasks] = useState([]);  // NOVO
+  const [tasks, setTasks] = useState([]);
+  const [estimation, setEstimation] = useState(null);
 
-  // Buscar histórico de tarefas do backend
   const fetchTasks = async () => {
     try {
-      const res = await axios.get(`${API}/api/tasks?limit=10`);
+      const res = await axios.get(`${API}/api/tasks?limit=20`);
       setTasks(res.data);
     } catch (e) {
       console.error('Erro ao buscar histórico:', e);
@@ -56,7 +53,7 @@ function App() {
     newSocket.on('agents_state', (state) => setAgentsState(state));
     newSocket.on('agent_message', (data) => {
       setLastMessage({ agent: data.agent, text: data.message });
-      fetchTasks(); // Atualiza o histórico ao receber nova mensagem
+      fetchTasks();
     });
     newSocket.on('connect_error', () => setError('Falha na conexão WebSocket'));
     return () => newSocket.close();
@@ -85,18 +82,41 @@ function App() {
     }
   };
 
+  const estimateTime = async () => {
+    try {
+      const res = await axios.post(`${API}/api/estimate`, { gcode, hourly_rate: 150 });
+      setEstimation(res.data);
+    } catch (e) {
+      setError(`Erro na estimativa: ${e.message}`);
+    }
+  };
+
   const startAgentTask = (agent) => {
     if (socket) socket.emit('start_task', { agent, gcode });
   };
 
   useEffect(() => {
     parseGcode();
-    fetchTasks(); // Carrega histórico ao iniciar
+    fetchTasks();
   }, []);
+
+  const agentNames = ['Arnaldo', 'Beatriz', 'Carlos', 'Diana', 'Eduardo'];
+  const taskCounts = agentNames.map(name => 
+    tasks.filter(t => t.agent === name && t.status === 'completed').length
+  );
+
+  const chartData = {
+    labels: agentNames,
+    datasets: [{
+      label: 'Tarefas Concluídas',
+      data: taskCounts,
+      backgroundColor: ['#ff6384', '#36a2eb', '#ffce56', '#4bc0c0', '#9966ff']
+    }]
+  };
 
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      <div style={{ width: '350px', background: '#16213e', padding: '1rem', color: 'white', overflowY: 'auto' }}>
+      <div style={{ width: '380px', background: '#16213e', padding: '1rem', color: 'white', overflowY: 'auto' }}>
         <h2>✏️ Editor G-Code</h2>
         <textarea
           style={{ width: '100%', height: '150px', background: '#0f3460', color: 'white', fontSize: '10px' }}
@@ -123,11 +143,22 @@ function App() {
           </div>
         )}
 
+        <h3 style={{ marginTop: 20 }}>⏱️ Estimativa de Tempo/Custo</h3>
+        <button onClick={estimateTime} style={{ marginTop: 8 }}>Calcular</button>
+        {estimation && (
+          <div style={{ marginTop: 10, background: '#1a2a4a', padding: 10, borderRadius: 8 }}>
+            <p>⏱️ Tempo: <strong>{estimation.total_time_formatted}</strong></p>
+            <p>💰 Custo: <strong>R$ {estimation.estimated_cost}</strong></p>
+            <p>📏 Distância: <strong>{estimation.total_distance_mm} mm</strong></p>
+            <p>🔄 Mov. rápidos: {estimation.rapid_moves} | Corte: {estimation.cutting_moves}</p>
+          </div>
+        )}
+
         <h3 style={{ marginTop: 20 }}>👔 Agentes</h3>
         {Object.entries(agentsState).map(([name, state]) => (
           <div key={name} style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span><strong>{name}</strong>: {state.status} {state.task ? `(${state.task})` : ''}</span>
-            <button onClick={() => startAgentTask(name)} style={{ fontSize: 12 }}>Iniciar Tarefa</button>
+            <button onClick={() => startAgentTask(name)} style={{ fontSize: 12 }}>Iniciar</button>
           </div>
         ))}
 
@@ -138,23 +169,23 @@ function App() {
           </div>
         )}
 
-        {/* NOVO: Painel de Histórico */}
-        <h3 style={{ marginTop: 20 }}>📋 Histórico de Análises</h3>
-        <div style={{ maxHeight: 300, overflowY: 'auto', background: '#0f1a2e', borderRadius: 8, padding: 8 }}>
-          {tasks.length === 0 ? (
-            <p style={{ color: '#aaa', fontSize: 12 }}>Nenhuma análise ainda.</p>
-          ) : (
-            tasks.map(task => (
-              <div key={task.id} style={{ borderBottom: '1px solid #334', padding: '6px 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>{task.agent}</strong>
-                  <span style={{ fontSize: 10, color: '#88aaff' }}>{new Date(task.created_at).toLocaleTimeString()}</span>
-                </div>
-                <p style={{ margin: '4px 0 0', fontSize: 11, color: '#ccc' }}>{task.response?.substring(0, 100)}...</p>
-                <span style={{ fontSize: 10, color: task.status === 'completed' ? '#6f6' : '#f66' }}>{task.status}</span>
+        <h3 style={{ marginTop: 20 }}>📊 Produtividade</h3>
+        <div style={{ background: '#0f1a2e', padding: 8, borderRadius: 8 }}>
+          <Bar data={chartData} options={{ responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { color: 'white' } } } }} />
+        </div>
+
+        <h3 style={{ marginTop: 20 }}>📋 Histórico</h3>
+        <div style={{ maxHeight: 200, overflowY: 'auto', background: '#0f1a2e', borderRadius: 8, padding: 8 }}>
+          {tasks.slice(0, 10).map(task => (
+            <div key={task.id} style={{ borderBottom: '1px solid #334', padding: '6px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <strong>{task.agent}</strong>
+                <span style={{ fontSize: 10, color: '#88aaff' }}>{new Date(task.created_at).toLocaleTimeString()}</span>
               </div>
-            ))
-          )}
+              <p style={{ margin: '4px 0 0', fontSize: 11, color: '#ccc' }}>{task.response?.substring(0, 80)}...</p>
+              <span style={{ fontSize: 10, color: task.status === 'completed' ? '#6f6' : '#f66' }}>{task.status}</span>
+            </div>
+          ))}
         </div>
       </div>
       <div style={{ flex: 1, background: '#111122' }}>

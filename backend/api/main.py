@@ -5,6 +5,8 @@ from ..core.gcode_parser import GcodeParser
 from ..core.post_processor import PostProcessorFactory
 from ..core.ai_client import AIClient
 from ..core.database import get_db, init_db
+from ..core.time_estimator import TimeEstimator
+from ..core.time_estimator import TimeEstimator
 import sqlite3
 
 app = Flask(__name__)
@@ -115,6 +117,86 @@ def get_tasks():
     return jsonify(tasks)
 
 # --- Socket.IO events (com persistência) ---
+@app.route("/api/estimate", methods=["POST"])
+
+def estimate_time():
+
+    data = request.json
+
+    gcode = data.get("gcode", "")
+
+    hourly_rate = data.get("hourly_rate", 150.0)
+
+    if not gcode:
+
+        return jsonify({"error": "No G-code provided"}), 400
+
+    parser = GcodeParser()
+
+    commands = parser.parse(gcode)
+
+    estimator = TimeEstimator(hourly_rate)
+
+    result = estimator.estimate(commands)
+
+    return jsonify({
+
+        "total_time_seconds": result.total_time_seconds,
+
+        "total_time_formatted": result.total_time_formatted,
+
+        "total_distance_mm": round(result.total_distance_mm, 2),
+
+        "estimated_cost": round(result.estimated_cost, 2),
+
+        "rapid_moves": result.rapid_moves,
+
+        "cutting_moves": result.cutting_moves,
+
+        "success": True
+
+    })
+
+@app.route("/api/estimate", methods=["POST"])
+
+def estimate_time():
+
+    data = request.json
+
+    gcode = data.get("gcode", "")
+
+    hourly_rate = data.get("hourly_rate", 150.0)
+
+    if not gcode:
+
+        return jsonify({"error": "No G-code provided"}), 400
+
+    parser = GcodeParser()
+
+    commands = parser.parse(gcode)
+
+    estimator = TimeEstimator(hourly_rate)
+
+    result = estimator.estimate(commands)
+
+    return jsonify({
+
+        "total_time_seconds": result.total_time_seconds,
+
+        "total_time_formatted": result.total_time_formatted,
+
+        "total_distance_mm": round(result.total_distance_mm, 2),
+
+        "estimated_cost": round(result.estimated_cost, 2),
+
+        "rapid_moves": result.rapid_moves,
+
+        "cutting_moves": result.cutting_moves,
+
+        "success": True
+
+    })
+
 @socketio.on('connect')
 def handle_connect():
     emit('agents_state', agents_state)
