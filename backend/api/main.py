@@ -1,22 +1,20 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
+import csv
+import io
 from ..core.gcode_parser import GcodeParser
 from ..core.post_processor import PostProcessorFactory
 from ..core.ai_client import AIClient
 from ..core.database import get_db, init_db
 from ..core.time_estimator import TimeEstimator
-from ..core.time_estimator import TimeEstimator
-import sqlite3
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-# Inicializa o banco de dados
 init_db()
 
-# Carrega estado inicial dos agentes do banco (ou usa padrão)
 def load_agents_state():
     conn = get_db()
     cursor = conn.cursor()
@@ -26,12 +24,13 @@ def load_agents_state():
     state = {}
     for row in rows:
         state[row['agent']] = {'status': row['status'], 'task': row['task']}
-    # Se não houver registros, cria os padrões
     if not state:
         state = {
             'Arnaldo': {'status': 'idle', 'task': None},
             'Beatriz': {'status': 'idle', 'task': None},
-            'Carlos': {'status': 'idle', 'task': None}
+            'Carlos': {'status': 'idle', 'task': None},
+            'Diana': {'status': 'idle', 'task': None},
+            'Eduardo': {'status': 'idle', 'task': None}
         }
         save_agents_state(state)
     return state
@@ -49,7 +48,9 @@ def save_agents_state(state):
 
 agents_state = load_agents_state()
 
-# --- REST endpoints (já existentes) ---
+# ------------------------------------------------------------
+# REST endpoints
+# ------------------------------------------------------------
 @app.route('/api/parse-gcode', methods=['POST'])
 def parse_gcode():
     data = request.json
@@ -96,18 +97,25 @@ def post_process():
 def health():
     return jsonify({'status': 'ok'})
 
-# --- NOVO: Endpoint para histórico de tarefas ---
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
     agent = request.args.get('agent')
     limit = int(request.args.get('limit', 20))
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
     conn = get_db()
     cursor = conn.cursor()
-    query = 'SELECT * FROM tasks'
+    query = 'SELECT * FROM tasks WHERE 1=1'
     params = []
     if agent:
-        query += ' WHERE agent = ?'
+        query += ' AND agent = ?'
         params.append(agent)
+    if start_date:
+        query += ' AND created_at >= ?'
+        params.append(start_date)
+    if end_date:
+        query += ' AND created_at <= ?'
+        params.append(end_date + ' 23:59:59')
     query += ' ORDER BY created_at DESC LIMIT ?'
     params.append(limit)
     cursor.execute(query, params)
@@ -116,87 +124,64 @@ def get_tasks():
     tasks = [dict(row) for row in rows]
     return jsonify(tasks)
 
-# --- Socket.IO events (com persistência) ---
-@app.route("/api/estimate", methods=["POST"])
-
+@app.route('/api/estimate', methods=['POST'])
 def estimate_time():
-
     data = request.json
-
-    gcode = data.get("gcode", "")
-
-    hourly_rate = data.get("hourly_rate", 150.0)
-
+    gcode = data.get('gcode', '')
+    hourly_rate = data.get('hourly_rate', 150.0)
     if not gcode:
-
-        return jsonify({"error": "No G-code provided"}), 400
-
+        return jsonify({'error': 'No G-code provided'}), 400
     parser = GcodeParser()
-
     commands = parser.parse(gcode)
-
     estimator = TimeEstimator(hourly_rate)
-
     result = estimator.estimate(commands)
-
     return jsonify({
-
-        "total_time_seconds": result.total_time_seconds,
-
-        "total_time_formatted": result.total_time_formatted,
-
-        "total_distance_mm": round(result.total_distance_mm, 2),
-
-        "estimated_cost": round(result.estimated_cost, 2),
-
-        "rapid_moves": result.rapid_moves,
-
-        "cutting_moves": result.cutting_moves,
-
-        "success": True
-
+        'total_time_seconds': result.total_time_seconds,
+        'total_time_formatted': result.total_time_formatted,
+        'total_distance_mm': round(result.total_distance_mm, 2),
+        'estimated_cost': round(result.estimated_cost, 2),
+        'rapid_moves': result.rapid_moves,
+        'cutting_moves': result.cutting_moves,
+        'success': True
     })
 
-@app.route("/api/estimate", methods=["POST"])
+@app.route('/api/tasks/export/csv', methods=['GET'])
+def export_tasks_csv():
+    agent = request.args.get('agent')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    conn = get_db()
+    cursor = conn.cursor()
+    query = 'SELECT agent, gcode, response, status, created_at FROM tasks WHERE 1=1'
+    params = []
+    if agent:
+        query += ' AND agent = ?'
+        params.append(agent)
+    if start_date:
+        query += ' AND created_at >= ?'
+        params.append(start_date)
+    if end_date:
+        query += ' AND created_at <= ?'
+        params.append(end_date + ' 23:59:59')
+    query += ' ORDER BY created_at DESC'
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
 
-def estimate_time():
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Agente', 'G-code', 'Resposta', 'Status', 'Data'])
+    for row in rows:
+        writer.writerow([row['agent'], row['gcode'][:100], row['response'], row['status'], row['created_at']])
+    
+    response = make_response(output.getvalue())
+    response.headers['Content-Disposition'] = 'attachment; filename=tarefas_cnc.csv'
+    response.headers['Content-type'] = 'text/csv; charset=utf-8'
+    return response
 
-    data = request.json
-
-    gcode = data.get("gcode", "")
-
-    hourly_rate = data.get("hourly_rate", 150.0)
-
-    if not gcode:
-
-        return jsonify({"error": "No G-code provided"}), 400
-
-    parser = GcodeParser()
-
-    commands = parser.parse(gcode)
-
-    estimator = TimeEstimator(hourly_rate)
-
-    result = estimator.estimate(commands)
-
-    return jsonify({
-
-        "total_time_seconds": result.total_time_seconds,
-
-        "total_time_formatted": result.total_time_formatted,
-
-        "total_distance_mm": round(result.total_distance_mm, 2),
-
-        "estimated_cost": round(result.estimated_cost, 2),
-
-        "rapid_moves": result.rapid_moves,
-
-        "cutting_moves": result.cutting_moves,
-
-        "success": True
-
-    })
-
+# ------------------------------------------------------------
+# Socket.IO events
+# ------------------------------------------------------------
 @socketio.on('connect')
 def handle_connect():
     emit('agents_state', agents_state)
@@ -208,8 +193,16 @@ def handle_start_task(data):
     if agent not in agents_state:
         return
 
+    if agent == 'Diana':
+        task_desc = 'Pós-processando...'
+        machine = 'fanuc'
+    elif agent == 'Eduardo':
+        task_desc = 'Analisando trajetória...'
+    else:
+        task_desc = 'Analisando G-code...'
+
     agents_state[agent]['status'] = 'thinking'
-    agents_state[agent]['task'] = 'Analisando G-code...'
+    agents_state[agent]['task'] = task_desc
     save_agents_state(agents_state)
     emit('agents_state', agents_state, broadcast=True)
 
@@ -217,17 +210,31 @@ def handle_start_task(data):
         conn = get_db()
         cursor = conn.cursor()
         try:
-            client = AIClient()
-            result = client.analyze_gcode(gcode, agent)
+            if agent == 'Diana':
+                parser = GcodeParser()
+                commands = parser.parse(gcode)
+                processor = PostProcessorFactory.create('fanuc')
+                result = processor.process(commands)
+                response_msg = f"Pós-processamento (Fanuc) concluído com sucesso. Total de {len(commands)} comandos."
+            elif agent == 'Eduardo':
+                parser = GcodeParser()
+                commands = parser.parse(gcode)
+                points = parser.get_path_points()
+                rapid = sum(1 for c in commands if c.command == 'G00')
+                linear = sum(1 for c in commands if c.command == 'G01')
+                response_msg = f"Trajetória com {len(points)} pontos. Movimentos rápidos: {rapid}, interpolações: {linear}."
+            else:
+                client = AIClient()
+                response_msg = client.analyze_gcode(gcode, agent)
+
             agents_state[agent]['status'] = 'idle'
             agents_state[agent]['task'] = None
-            # Salva a tarefa no histórico
             cursor.execute('''
                 INSERT INTO tasks (agent, gcode, response, status)
                 VALUES (?, ?, ?, ?)
-            ''', (agent, gcode, result, 'completed'))
+            ''', (agent, gcode, response_msg, 'completed'))
             conn.commit()
-            socketio.emit('agent_message', {'agent': agent, 'message': result})
+            socketio.emit('agent_message', {'agent': agent, 'message': response_msg})
         except Exception as e:
             agents_state[agent]['status'] = 'error'
             agents_state[agent]['task'] = str(e)

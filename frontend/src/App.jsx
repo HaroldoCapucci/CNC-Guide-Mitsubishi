@@ -37,14 +37,67 @@ function App() {
   const [lastMessage, setLastMessage] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [estimation, setEstimation] = useState(null);
+  const [dateFilter, setDateFilter] = useState('all');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   const fetchTasks = async () => {
+    let start, end;
+    const today = new Date();
+    if (dateFilter === 'today') {
+      start = today.toISOString().split('T')[0];
+      end = start;
+    } else if (dateFilter === 'week') {
+      const weekAgo = new Date(today);
+      weekAgo.setDate(today.getDate() - 7);
+      start = weekAgo.toISOString().split('T')[0];
+      end = today.toISOString().split('T')[0];
+    } else if (dateFilter === 'month') {
+      const monthAgo = new Date(today);
+      monthAgo.setMonth(today.getMonth() - 1);
+      start = monthAgo.toISOString().split('T')[0];
+      end = today.toISOString().split('T')[0];
+    } else if (dateFilter === 'custom') {
+      start = customStart;
+      end = customEnd;
+    }
+    const params = { limit: 100 };
+    if (start) params.start_date = start;
+    if (end) params.end_date = end;
     try {
-      const res = await axios.get(`${API}/api/tasks?limit=20`);
+      const res = await axios.get(`${API}/api/tasks`, { params });
       setTasks(res.data);
     } catch (e) {
       console.error('Erro ao buscar histórico:', e);
     }
+  };
+
+  const exportCSV = () => {
+    let url = `${API}/api/tasks/export/csv`;
+    const params = new URLSearchParams();
+    if (dateFilter === 'today') {
+      const today = new Date().toISOString().split('T')[0];
+      params.append('start_date', today);
+      params.append('end_date', today);
+    } else if (dateFilter === 'week') {
+      const today = new Date();
+      const weekAgo = new Date(today);
+      weekAgo.setDate(today.getDate() - 7);
+      params.append('start_date', weekAgo.toISOString().split('T')[0]);
+      params.append('end_date', today.toISOString().split('T')[0]);
+    } else if (dateFilter === 'month') {
+      const today = new Date();
+      const monthAgo = new Date(today);
+      monthAgo.setMonth(today.getMonth() - 1);
+      params.append('start_date', monthAgo.toISOString().split('T')[0]);
+      params.append('end_date', today.toISOString().split('T')[0]);
+    } else if (dateFilter === 'custom') {
+      if (customStart) params.append('start_date', customStart);
+      if (customEnd) params.append('end_date', customEnd);
+    }
+    const query = params.toString();
+    if (query) url += '?' + query;
+    window.open(url);
   };
 
   useEffect(() => {
@@ -99,6 +152,10 @@ function App() {
     parseGcode();
     fetchTasks();
   }, []);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [dateFilter, customStart, customEnd]);
 
   const agentNames = ['Arnaldo', 'Beatriz', 'Carlos', 'Diana', 'Eduardo'];
   const taskCounts = agentNames.map(name => 
@@ -175,6 +232,23 @@ function App() {
         </div>
 
         <h3 style={{ marginTop: 20 }}>📋 Histórico</h3>
+        <div style={{ marginBottom: 8 }}>
+          <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={{ width: '100%', background: '#0f3460', color: 'white' }}>
+            <option value="all">Todo período</option>
+            <option value="today">Hoje</option>
+            <option value="week">Última semana</option>
+            <option value="month">Último mês</option>
+            <option value="custom">Personalizado</option>
+          </select>
+          {dateFilter === 'custom' && (
+            <div style={{ display: 'flex', gap: '4px', marginTop: 4 }}>
+              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={{ flex: 1, background: '#0f3460', color: 'white' }} />
+              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={{ flex: 1, background: '#0f3460', color: 'white' }} />
+            </div>
+          )}
+          <button onClick={fetchTasks} style={{ marginTop: 4, width: '100%' }}>Filtrar</button>
+        </div>
+        <button onClick={exportCSV} style={{ marginBottom: 8, width: '100%' }}>📥 Exportar CSV</button>
         <div style={{ maxHeight: 200, overflowY: 'auto', background: '#0f1a2e', borderRadius: 8, padding: 8 }}>
           {tasks.slice(0, 10).map(task => (
             <div key={task.id} style={{ borderBottom: '1px solid #334', padding: '6px 0' }}>
