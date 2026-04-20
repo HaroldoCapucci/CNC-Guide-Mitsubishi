@@ -1,8 +1,9 @@
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import csv
 import io
+import os
 from ..core.gcode_parser import GcodeParser
 from ..core.post_processor import PostProcessorFactory
 from ..core.ai_client import AIClient
@@ -16,23 +17,24 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 init_db()
 
 def load_agents_state():
+    # Lista fixa de agentes (sempre os 5)
+    default_state = {
+        'Arnaldo': {'status': 'idle', 'task': None},
+        'Beatriz': {'status': 'idle', 'task': None},
+        'Carlos': {'status': 'idle', 'task': None},
+        'Diana': {'status': 'idle', 'task': None},
+        'Eduardo': {'status': 'idle', 'task': None}
+    }
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('SELECT agent, status, task FROM agent_state')
     rows = cursor.fetchall()
     conn.close()
-    state = {}
+    # Mescla com o estado padrão (caso algum agente não esteja no banco)
+    state = default_state.copy()
     for row in rows:
-        state[row['agent']] = {'status': row['status'], 'task': row['task']}
-    if not state:
-        state = {
-            'Arnaldo': {'status': 'idle', 'task': None},
-            'Beatriz': {'status': 'idle', 'task': None},
-            'Carlos': {'status': 'idle', 'task': None},
-            'Diana': {'status': 'idle', 'task': None},
-            'Eduardo': {'status': 'idle', 'task': None}
-        }
-        save_agents_state(state)
+        if row['agent'] in state:
+            state[row['agent']] = {'status': row['status'], 'task': row['task']}
     return state
 
 def save_agents_state(state):
@@ -49,7 +51,7 @@ def save_agents_state(state):
 agents_state = load_agents_state()
 
 # ------------------------------------------------------------
-# REST endpoints
+# REST endpoints (mantidos iguais)
 # ------------------------------------------------------------
 @app.route('/api/parse-gcode', methods=['POST'])
 def parse_gcode():
@@ -179,6 +181,16 @@ def export_tasks_csv():
     response.headers['Content-type'] = 'text/csv; charset=utf-8'
     return response
 
+# Rotas para servir o frontend estático (produção)
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    static_folder = os.path.join(os.path.dirname(__file__), '..', 'static')
+    if path != "" and os.path.exists(os.path.join(static_folder, path)):
+        return send_from_directory(static_folder, path)
+    else:
+        return send_from_directory(static_folder, 'index.html')
+
 # ------------------------------------------------------------
 # Socket.IO events
 # ------------------------------------------------------------
@@ -195,7 +207,6 @@ def handle_start_task(data):
 
     if agent == 'Diana':
         task_desc = 'Pós-processando...'
-        machine = 'fanuc'
     elif agent == 'Eduardo':
         task_desc = 'Analisando trajetória...'
     else:
@@ -249,17 +260,6 @@ def handle_start_task(data):
             socketio.emit('agents_state', agents_state)
 
     socketio.start_background_task(ai_work)
-
-# Servir frontend estático
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>")
-def serve(path):
-    import os
-    static_folder = os.path.join(os.path.dirname(__file__), "..", "static")
-    if path != "" and os.path.exists(os.path.join(static_folder, path)):
-        return send_from_directory(static_folder, path)
-    else:
-        return send_from_directory(static_folder, "index.html")
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)
