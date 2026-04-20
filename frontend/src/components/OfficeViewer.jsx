@@ -1,150 +1,115 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { io } from 'socket.io-client';
 
-const OfficeViewer = ({ commands, points }) => {
+const OfficeViewer = () => {
   const containerRef = useRef(null);
-  const sceneRef = useRef(null);
-  const rendererRef = useRef(null);
-  const cameraRef = useRef(null);
-  const controlsRef = useRef(null);
-  const agentsRef = useRef({});
-  const trajectoryRef = useRef(null);
-  const [agentsState, setAgentsState] = useState({});
-
-  useEffect(() => {
-    const socket = io('http://localhost:5000');
-    socket.on('agents_state', (state) => setAgentsState(state));
-    return () => socket.close();
-  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Cena
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e);
-    sceneRef.current = scene;
+    scene.background = new THREE.Color(0x111122);
 
-    const camera = new THREE.PerspectiveCamera(45, containerRef.current.clientWidth / containerRef.current.clientHeight, 0.1, 1000);
-    camera.position.set(25, 15, 35);
+    // Câmera
+    const camera = new THREE.PerspectiveCamera(
+      45,
+      containerRef.current.clientWidth / containerRef.current.clientHeight,
+      0.1,
+      1000
+    );
+    camera.position.set(10, 6, 15);
     camera.lookAt(0, 2, 0);
-    cameraRef.current = camera;
 
+    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
     renderer.shadowMap.enabled = true;
     containerRef.current.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
 
+    // Controles
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
     controls.target.set(0, 2, 0);
-    controlsRef.current = controls;
 
-    scene.add(new THREE.AmbientLight(0x404060, 0.6));
-    const dirLight = new THREE.DirectionalLight(0xffeedd, 1);
-    dirLight.position.set(10, 20, 5);
+    // Luzes
+    scene.add(new THREE.AmbientLight(0x404060, 0.8));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(5, 10, 5);
     dirLight.castShadow = true;
     dirLight.receiveShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
-    const d = 30;
-    dirLight.shadow.camera.left = -d;
-    dirLight.shadow.camera.right = d;
-    dirLight.shadow.camera.top = d;
-    dirLight.shadow.camera.bottom = -d;
-    dirLight.shadow.camera.near = 1;
-    dirLight.shadow.camera.far = 50;
     scene.add(dirLight);
-    
-    const fillLight = new THREE.PointLight(0x4466ff, 0.5);
-    fillLight.position.set(-5, 5, 10);
-    scene.add(fillLight);
 
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x336699, roughness: 0.7, metalness: 0.1 });
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), floorMat);
+    // Piso
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(30, 30),
+      new THREE.MeshStandardMaterial({ color: 0x336699 })
+    );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.y = 0;
     floor.receiveShadow = true;
     scene.add(floor);
-    
-    const gridHelper = new THREE.GridHelper(50, 25, 0x88aaff, 0x334466);
-    gridHelper.position.y = 0.01;
-    scene.add(gridHelper);
 
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a3a5a, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
-    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(50, 10), wallMat);
-    backWall.position.set(0, 5, -25);
-    scene.add(backWall);
-    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(50, 10), wallMat);
-    leftWall.rotation.y = Math.PI / 2;
-    leftWall.position.set(-25, 5, 0);
-    scene.add(leftWall);
-    const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(50, 10), wallMat);
-    rightWall.rotation.y = -Math.PI / 2;
-    rightWall.position.set(25, 5, 0);
-    scene.add(rightWall);
+    const grid = new THREE.GridHelper(30, 15, 0x88aaff, 0x334466);
+    grid.position.y = 0.01;
+    scene.add(grid);
 
-    const createDesk = (x, z, agentName) => {
+    // Função para criar boneco
+    const createAgent = (x, z, color, name) => {
       const group = new THREE.Group();
       
-      const topMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
-      const top = new THREE.Mesh(new THREE.BoxGeometry(4, 0.2, 3), topMat);
-      top.position.y = 1.5;
-      top.castShadow = true;
-      top.receiveShadow = true;
-      group.add(top);
+      // Corpo
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.6, 0.7, 1.4),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.6 })
+      );
+      body.position.y = 0.9;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      group.add(body);
       
-      const legMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
-      const legPositions = [[-1.8, 0.75, -1.3], [1.8, 0.75, -1.3], [-1.8, 0.75, 1.3], [1.8, 0.75, 1.3]];
-      legPositions.forEach(pos => {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 0.3), legMat);
-        leg.position.set(pos[0], pos[1], pos[2]);
-        leg.castShadow = true;
-        leg.receiveShadow = true;
-        group.add(leg);
-      });
+      // Cabeça
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 16, 16),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.3 })
+      );
+      head.position.y = 1.7;
+      head.castShadow = true;
+      head.receiveShadow = true;
+      group.add(head);
       
-      const screenMat = new THREE.MeshStandardMaterial({ color: 0x111122, emissive: new THREE.Color(0x224466) });
-      const screen = new THREE.Mesh(new THREE.BoxGeometry(2, 1.5, 0.1), screenMat);
-      screen.position.set(0, 2.5, -1);
-      screen.castShadow = true;
-      screen.receiveShadow = true;
-      group.add(screen);
+      // Olhos
+      const eyeGeo = new THREE.SphereGeometry(0.08);
+      const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+      const pupilGeo = new THREE.SphereGeometry(0.04);
+      const pupilMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
       
-      const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.5), new THREE.MeshStandardMaterial({ color: 0x888888 }));
-      stand.position.set(0, 1.9, -1);
-      stand.castShadow = true;
-      stand.receiveShadow = true;
-      group.add(stand);
+      const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+      leftEye.position.set(-0.15, 1.65, 0.5);
+      group.add(leftEye);
+      const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
+      leftPupil.position.set(-0.15, 1.65, 0.57);
+      group.add(leftPupil);
       
-      const agentMat = new THREE.MeshStandardMaterial({ color: 0x3399ff });
-      const agent = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 16), agentMat);
-      agent.position.set(0, 2.0, 0.8);
-      agent.castShadow = true;
-      agent.receiveShadow = true;
-      agent.userData.name = agentName;
-      group.add(agent);
-      
-      agentsRef.current[agentName] = agent;
+      const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+      rightEye.position.set(0.15, 1.65, 0.5);
+      group.add(rightEye);
+      const rightPupil = new THREE.Mesh(pupilGeo, pupilMat);
+      rightPupil.position.set(0.15, 1.65, 0.57);
+      group.add(rightPupil);
       
       group.position.set(x, 0, z);
       return group;
     };
 
-    // Posicionar mesas: Arnaldo (-10,0), Beatriz (-3,0), Carlos (4,0), Diana (11,0), Eduardo (18,0)
-    scene.add(createDesk(-12, 0, 'Arnaldo'));
-    scene.add(createDesk(-4, 0, 'Beatriz'));
-    scene.add(createDesk(4, 0, 'Carlos'));
-    scene.add(createDesk(12, 0, 'Diana'));
-    scene.add(createDesk(20, 0, 'Eduardo'));
+    // Adiciona 5 bonecos
+    const colors = [0x4d7db3, 0xb34d7d, 0x7db34d, 0xb37d4d, 0x7d4db3];
+    const positions = [-8, -2, 4, 10, 16];
+    positions.forEach((x, i) => {
+      scene.add(createAgent(x, 0, colors[i], `Agent${i+1}`));
+    });
 
-    const trajectoryGroup = new THREE.Group();
-    scene.add(trajectoryGroup);
-    trajectoryRef.current = trajectoryGroup;
-
+    // Animação
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
@@ -152,6 +117,7 @@ const OfficeViewer = ({ commands, points }) => {
     };
     animate();
 
+    // Redimensionamento
     const handleResize = () => {
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
@@ -167,42 +133,6 @@ const OfficeViewer = ({ commands, points }) => {
       renderer.dispose();
     };
   }, []);
-
-  useEffect(() => {
-    Object.entries(agentsState).forEach(([name, state]) => {
-      const agent = agentsRef.current[name];
-      if (agent) {
-        let color;
-        switch (state.status) {
-          case 'idle': color = 0x3399ff; break;
-          case 'thinking': color = 0xffaa00; break;
-          case 'working': color = 0x00cc66; break;
-          case 'error': color = 0xff3333; break;
-          default: color = 0x3399ff;
-        }
-        agent.material.color.setHex(color);
-        if (state.status === 'thinking') {
-          const scale = 1 + Math.sin(Date.now() * 0.01) * 0.1;
-          agent.scale.set(scale, scale, scale);
-        } else {
-          agent.scale.set(1, 1, 1);
-        }
-      }
-    });
-  }, [agentsState]);
-
-  useEffect(() => {
-    const group = trajectoryRef.current;
-    if (!group) return;
-    while(group.children.length) group.remove(group.children[0]);
-    if (!points || points.length < 2) return;
-    const positions = points.flatMap(p => [p[0]/10, p[1]/10 + 3, p[2]/10]);
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const mat = new THREE.LineBasicMaterial({ color: 0xffaa00 });
-    const line = new THREE.Line(geom, mat);
-    group.add(line);
-  }, [points]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };
