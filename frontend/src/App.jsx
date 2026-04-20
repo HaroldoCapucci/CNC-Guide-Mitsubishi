@@ -15,7 +15,7 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-// Fixo para localhost no Termux
+// API fixa para o backend rodando no Termux
 const API = 'http://localhost:5000';
 
 function App() {
