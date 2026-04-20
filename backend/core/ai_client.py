@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from groq import Groq
 
-load_dotenv()  # Carrega as variáveis do arquivo .env
+load_dotenv()
 
 class AIClient:
     def __init__(self):
@@ -10,7 +10,9 @@ class AIClient:
         if not api_key:
             raise ValueError("GROQ_API_KEY não definida no arquivo .env")
         self.client = Groq(api_key=api_key)
-        self.model = "llama3-8b-8192"
+        # ATUALIZAÇÃO: Modelo antigo 'llama3-8b-8192' descontinuado.
+        # Substituído por 'llama-3.1-8b-instant' (recomendado pela Groq)
+        self.model = "llama-3.1-8b-instant"
 
     def analyze_gcode(self, gcode: str, agent_name: str) -> str:
         prompt = f"""Você é um especialista em usinagem CNC chamado {agent_name}.
