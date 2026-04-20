@@ -1,7 +1,29 @@
+# Ambiente Python
 venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.env
+
+# Node.js
 node_modules/
 dist/
-.DS_Store
+dist-ssr/
+*.local
 
+# Logs e temporários
+*.log
+*.swp
+.DS_Store
+Thumbs.db
+
+# Configurações de IDE
+.vscode/
+.idea/
+
+# Banco de dados
+*.db
+*.sqlite3

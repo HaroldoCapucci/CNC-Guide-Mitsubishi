@@ -3,7 +3,10 @@ import axios from 'axios';
 import OfficeViewer from './components/OfficeViewer';
 import { io } from 'socket.io-client';
 
-const API = 'http://localhost:5000';
+// Detecta automaticamente o host do backend
+const API = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5000' 
+  : `http://${window.location.hostname}:5000`;
 
 function App() {
   const [gcode, setGcode] = useState('G00 X0 Y0 Z0\nG01 X50 Y0 Z0\nG01 X50 Y50 Z0\nG01 X0 Y50 Z0\nG01 X0 Y0 Z0');
@@ -14,22 +17,26 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [socket, setSocket] = useState(null);
   const [agentsState, setAgentsState] = useState({});
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const newSocket = io(API);
     setSocket(newSocket);
     newSocket.on('agents_state', (state) => setAgentsState(state));
+    newSocket.on('connect_error', () => setError('Falha na conexão WebSocket'));
     return () => newSocket.close();
   }, []);
 
   const parseGcode = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await axios.post(`${API}/api/parse-gcode`, { gcode });
       setCommands(res.data.commands || []);
       setPoints(res.data.path_points || []);
     } catch (e) {
-      alert('Erro no parser');
+      console.error(e);
+      setError(`Erro no parser: ${e.message}. Verifique se o backend está rodando em ${API}`);
     } finally {
       setLoading(false);
     }
@@ -40,13 +47,14 @@ function App() {
       const res = await axios.post(`${API}/api/post-process`, { gcode, machine });
       setProcessed(res.data.gcode);
     } catch (e) {
-      alert('Erro no post-processador');
+      console.error(e);
+      setError(`Erro no post-processador: ${e.message}`);
     }
   };
 
   const startAgentTask = (agent) => {
     if (socket) {
-      socket.emit('start_task', { agent, task: 'Analisar G-code' });
+      socket.emit('start_task', { agent, task: 'Analisar G-code', gcode });
     }
   };
 
@@ -64,6 +72,7 @@ function App() {
         <button onClick={parseGcode} disabled={loading} style={{ marginTop: 8 }}>
           {loading ? 'Processando...' : 'Visualizar Trajetória'}
         </button>
+        {error && <p style={{ color: '#ff6666' }}>{error}</p>}
 
         <h3 style={{ marginTop: 20 }}>⚙️ Post-Processador</h3>
         <select value={machine} onChange={e => setMachine(e.target.value)} style={{ width: '100%' }}>
