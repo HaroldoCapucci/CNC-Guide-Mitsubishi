@@ -10,22 +10,17 @@ const OfficeViewer = ({ commands, points }) => {
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
   const agentsRef = useRef({});
-  const [socket, setSocket] = useState(null);
+  const trajectoryRef = useRef(null);
   const [agentsState, setAgentsState] = useState({});
 
-  // Inicializa Socket.IO
+  // Socket para receber estado dos agentes (opcional, mas útil)
   useEffect(() => {
-    const newSocket = io('http://localhost:5000');
-    setSocket(newSocket);
-    
-    newSocket.on('agents_state', (state) => {
-      setAgentsState(state);
-    });
-    
-    return () => newSocket.close();
+    const socket = io('http://localhost:5000');
+    socket.on('agents_state', (state) => setAgentsState(state));
+    return () => socket.close();
   }, []);
 
-  // Configura cena 3D
+  // Inicialização da cena 3D
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -97,11 +92,10 @@ const OfficeViewer = ({ commands, points }) => {
     rightWall.position.set(20, 5, 0);
     scene.add(rightWall);
 
-    // Cria mesas e agentes
+    // Função para criar mesa com agente
     const createDesk = (x, z, agentName) => {
       const group = new THREE.Group();
       
-      // Tampo da mesa
       const topMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
       const top = new THREE.Mesh(new THREE.BoxGeometry(4, 0.2, 3), topMat);
       top.position.y = 1.5;
@@ -109,7 +103,6 @@ const OfficeViewer = ({ commands, points }) => {
       top.receiveShadow = true;
       group.add(top);
       
-      // Pernas
       const legMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
       const legPositions = [[-1.8, 0.75, -1.3], [1.8, 0.75, -1.3], [-1.8, 0.75, 1.3], [1.8, 0.75, 1.3]];
       legPositions.forEach(pos => {
@@ -120,7 +113,6 @@ const OfficeViewer = ({ commands, points }) => {
         group.add(leg);
       });
       
-      // Monitor
       const screenMat = new THREE.MeshStandardMaterial({ color: 0x111122, emissive: new THREE.Color(0x224466) });
       const screen = new THREE.Mesh(new THREE.BoxGeometry(2, 1.5, 0.1), screenMat);
       screen.position.set(0, 2.5, -1);
@@ -149,14 +141,15 @@ const OfficeViewer = ({ commands, points }) => {
       return group;
     };
 
-    scene.add(createDesk(-8, 0, 'arnaldo'));
-    scene.add(createDesk(0, 0, 'beatriz'));
-    scene.add(createDesk(8, 0, 'carlos'));
+    scene.add(createDesk(-8, 0, 'Arnaldo'));
+    scene.add(createDesk(0, 0, 'Beatriz'));
+    scene.add(createDesk(8, 0, 'Carlos'));
 
-    // Adiciona visualização de G-code (se houver)
+    // Grupo para a trajetória
     const trajectoryGroup = new THREE.Group();
     scene.add(trajectoryGroup);
-    
+    trajectoryRef.current = trajectoryGroup;
+
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
@@ -180,7 +173,7 @@ const OfficeViewer = ({ commands, points }) => {
     };
   }, []);
 
-  // Atualiza cores dos agentes conforme estado
+  // Atualiza cores dos agentes conforme estado recebido via socket ou props
   useEffect(() => {
     Object.entries(agentsState).forEach(([name, state]) => {
       const agent = agentsRef.current[name];
@@ -205,20 +198,22 @@ const OfficeViewer = ({ commands, points }) => {
     });
   }, [agentsState]);
 
-  // Adiciona trajetória G-code sobreposta (opcional)
+  // Atualiza trajetória quando points mudam
   useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-    const oldTraj = scene.children.find(c => c.userData.isTrajectory);
-    if (oldTraj) scene.remove(oldTraj);
+    const group = trajectoryRef.current;
+    if (!group) return;
     
-    if (points && points.length > 1) {
-      const geom = new THREE.BufferGeometry().setFromPoints(points.map(p => new THREE.Vector3(p[0]/10, p[1]/10 + 3, p[2]/10)));
-      const mat = new THREE.LineBasicMaterial({ color: 0xffaa00 });
-      const line = new THREE.Line(geom, mat);
-      line.userData.isTrajectory = true;
-      scene.add(line);
-    }
+    // Remove linha antiga
+    while(group.children.length) group.remove(group.children[0]);
+    
+    if (!points || points.length < 2) return;
+    
+    const positions = points.flatMap(p => [p[0]/10, p[1]/10 + 3, p[2]/10]); // escala e elevação
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const mat = new THREE.LineBasicMaterial({ color: 0xffaa00 });
+    const line = new THREE.Line(geom, mat);
+    group.add(line);
   }, [points]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
