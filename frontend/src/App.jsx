@@ -15,7 +15,6 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-// API fixa para o backend rodando no Termux
 const API = 'http://localhost:5000';
 
 function App() {
@@ -39,6 +38,7 @@ function App() {
   const [dateFilter, setDateFilter] = useState('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  const [selectedModel, setSelectedModel] = useState('llama-3.1-8b-instant');
 
   const fetchTasks = async () => {
     let start, end;
@@ -144,7 +144,7 @@ function App() {
   };
 
   const startAgentTask = (agent) => {
-    if (socket) socket.emit('start_task', { agent, gcode });
+    if (socket) socket.emit('start_task', { agent, gcode, model: selectedModel });
   };
 
   useEffect(() => {
@@ -209,6 +209,14 @@ function App() {
             <p>🔄 Mov. rápidos: {estimation.rapid_moves} | Corte: {estimation.cutting_moves}</p>
           </div>
         )}
+
+        <h3 style={{ marginTop: 20 }}>🤖 Modelo de IA</h3>
+        <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} style={{ width: '100%', marginBottom: 8 }}>
+          <option value="llama-3.1-8b-instant">Llama 3.1 8B (rápido)</option>
+          <option value="mixtral-8x7b-32768">Mixtral 8x7B (potente)</option>
+          <option value="gemma2-9b-it">Gemma 2 9B (Google)</option>
+          <option value="offline">Modo Simulado (sem API)</option>
+        </select>
 
         <h3 style={{ marginTop: 20 }}>👔 Agentes</h3>
         {Object.entries(agentsState).map(([name, state]) => (

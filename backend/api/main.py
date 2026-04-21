@@ -235,7 +235,8 @@ def handle_start_task(data):
                 linear = sum(1 for c in commands if c.command == 'G01')
                 response_msg = f"Trajetória com {len(points)} pontos. Movimentos rápidos: {rapid}, interpolações: {linear}."
             else:
-                client = AIClient()
+                model = data.get("model", "llama-3.1-8b-instant")
+                client = AIClient(model)
                 response_msg = client.analyze_gcode(gcode, agent)
 
             agents_state[agent]['status'] = 'idle'
