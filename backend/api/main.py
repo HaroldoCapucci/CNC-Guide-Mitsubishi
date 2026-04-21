@@ -17,7 +17,6 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 init_db()
 
 def load_agents_state():
-    # Lista fixa de agentes (sempre os 5)
     default_state = {
         'Arnaldo': {'status': 'idle', 'task': None},
         'Beatriz': {'status': 'idle', 'task': None},
@@ -30,7 +29,6 @@ def load_agents_state():
     cursor.execute('SELECT agent, status, task FROM agent_state')
     rows = cursor.fetchall()
     conn.close()
-    # Mescla com o estado padrão (caso algum agente não esteja no banco)
     state = default_state.copy()
     for row in rows:
         if row['agent'] in state:
@@ -51,7 +49,7 @@ def save_agents_state(state):
 agents_state = load_agents_state()
 
 # ------------------------------------------------------------
-# REST endpoints (mantidos iguais)
+# REST endpoints
 # ------------------------------------------------------------
 @app.route('/api/parse-gcode', methods=['POST'])
 def parse_gcode():
@@ -181,6 +179,55 @@ def export_tasks_csv():
     response.headers['Content-type'] = 'text/csv; charset=utf-8'
     return response
 
+# ---------- Templates ----------
+@app.route('/api/templates', methods=['GET'])
+def get_templates():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, name FROM templates ORDER BY name')
+    rows = cursor.fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/templates', methods=['POST'])
+def save_template():
+    data = request.json
+    name = data.get('name')
+    gcode = data.get('gcode')
+    if not name or not gcode:
+        return jsonify({'error': 'Name and gcode required'}), 400
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('INSERT OR REPLACE INTO templates (name, gcode) VALUES (?, ?)', (name, gcode))
+        conn.commit()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    finally:
+        conn.close()
+    return jsonify({'success': True})
+
+@app.route('/api/templates/<name>', methods=['GET'])
+def load_template(name):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT gcode FROM templates WHERE name = ?', (name,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return jsonify({'gcode': row['gcode']})
+    return jsonify({'error': 'Not found'}), 404
+
+# ---------- Estatísticas ----------
+@app.route('/api/stats/daily', methods=['GET'])
+def daily_stats():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DATE(created_at) as day, COUNT(*) as count FROM tasks GROUP BY day ORDER BY day DESC LIMIT 7")
+    rows = cursor.fetchall()
+    conn.close()
+    return jsonify([{'day': r['day'], 'count': r['count']} for r in rows])
+
 # Rotas para servir o frontend estático (produção)
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -202,6 +249,7 @@ def handle_connect():
 def handle_start_task(data):
     agent = data.get('agent')
     gcode = data.get('gcode', '')
+    model = data.get('model', 'llama-3.1-8b-instant')
     if agent not in agents_state:
         return
 
@@ -235,7 +283,6 @@ def handle_start_task(data):
                 linear = sum(1 for c in commands if c.command == 'G01')
                 response_msg = f"Trajetória com {len(points)} pontos. Movimentos rápidos: {rapid}, interpolações: {linear}."
             else:
-                model = data.get("model", "llama-3.1-8b-instant")
                 client = AIClient(model)
                 response_msg = client.analyze_gcode(gcode, agent)
 
