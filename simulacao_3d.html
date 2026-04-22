@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Simulação 3D CNC - Three.js</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            pointer-events: none;
+            z-index: 10;
+            font-size: 14px;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            display: flex;
+            gap: 10px;
+            z-index: 10;
+        }
+        button {
+            padding: 6px 12px;
+            cursor: pointer;
+            font-weight: bold;
+            background: #2c3e66;
+            border: none;
+            color: white;
+            border-radius: 4px;
+        }
+        button:hover { background: #1e2a4a; }
+        textarea {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 280px;
+            height: 150px;
+            background: rgba(0,0,0,0.8);
+            color: #0f0;
+            font-family: monospace;
+            font-size: 11px;
+            border: 1px solid #00aaff;
+            padding: 5px;
+            resize: both;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <strong>Simulação 3D - Trajetória de Ferramenta</strong><br>
+        Arraste para girar | Botão direito para mover | Scroll para zoom
+    </div>
+    <div id="controls">
+        <button id="btnAnimate">▶ Iniciar Animação</button>
+        <button id="btnReset">⟲ Resetar Câmera</button>
+    </div>
+    <textarea id="gcodeInput" placeholder="Cole um código G simples aqui... Ex: G01 X50 Y50 Z-5 F1000">G01 X50 Y50 Z-5
+G01 X100 Y20 Z-5
+G01 X20 Y80 Z-5
+G01 X50 Y50 Z-10</textarea>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.128.0/build/three.module.js" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'https://unpkg.com/three@0.128.0/examples/jsm/controls/OrbitControls.js';
+
+        // Setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xeeeeff);
+        scene.fog = new THREE.Fog(0xeeeeff, 50, 100);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(80, 60, 80);
+        camera.lookAt(50, 0, 50);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.rotateSpeed = 1.0;
+        controls.zoomSpeed = 1.2;
+        controls.panSpeed = 0.8;
+        controls.target.set(50, 0, 50);
+
+        // Luzes
+        const ambientLight = new THREE.AmbientLight(0x404060);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(20, 40, 10);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+        const fillLight = new THREE.PointLight(0x4466cc, 0.5);
+        fillLight.position.set(-10, 20, 30);
+        scene.add(fillLight);
+
+        // Grade e eixos
+        const gridHelper = new THREE.GridHelper(200, 20, 0x888888, 0xcccccc);
+        gridHelper.position.y = -0.5;
+        scene.add(gridHelper);
+        const axesHelper = new THREE.AxesHelper(60);
+        scene.add(axesHelper);
+
+        // Bloco da peça
+        const blockMat = new THREE.MeshStandardMaterial({ color: 0x8aa0b0, roughness: 0.4, metalness: 0.1 });
+        const block = new THREE.Mesh(new THREE.BoxGeometry(100, 10, 100), blockMat);
+        block.position.set(50, -5, 50);
+        block.receiveShadow = true;
+        block.castShadow = true;
+        scene.add(block);
+
+        // Ferramenta (esfera vermelha)
+        const toolMat = new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0x441111 });
+        const tool = new THREE.Mesh(new THREE.SphereGeometry(3, 16, 16), toolMat);
+        tool.castShadow = true;
+        scene.add(tool);
+
+        let pathLine = null;
+        let points = [];
+
+        function parseGCode(gcode) {
+            const lines = gcode.split(/\r?\n/);
+            const coords = [];
+            for (let line of lines) {
+                let match = line.match(/G(?:01|00)\s+X([\d.-]+)\s+Y([\d.-]+)\s+Z([\d.-]+)/i);
+                if (!match) match = line.match(/G(?:01|00)\s+X([\d.-]+)\s+Y([\d.-]+)/i);
+                if (match) {
+                    let x = parseFloat(match[1]);
+                    let y = parseFloat(match[2]);
+                    let z = match[3] ? parseFloat(match[3]) : 0;
+                    coords.push(new THREE.Vector3(x, y, z));
+                }
+            }
+            return coords;
+        }
+
+        function updateTrajectory(gcodeText) {
+            points = parseGCode(gcodeText);
+            if (pathLine) scene.remove(pathLine);
+            if (points.length === 0) return;
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const materialLine = new THREE.LineBasicMaterial({ color: 0xff6600, linewidth: 2 });
+            pathLine = new THREE.Line(geometry, materialLine);
+            scene.add(pathLine);
+            if (points.length) tool.position.copy(points[0]);
+        }
+
+        let animIndex = 0;
+        let animInterval = null;
+        function startAnimation() {
+            if (animInterval) clearInterval(animInterval);
+            if (points.length === 0) return;
+            animIndex = 0;
+            tool.position.copy(points[0]);
+            animInterval = setInterval(() => {
+                animIndex++;
+                if (animIndex >= points.length) {
+                    clearInterval(animInterval);
+                    animInterval = null;
+                    return;
+                }
+                tool.position.copy(points[animIndex]);
+            }, 300);
+        }
+
+        document.getElementById('btnAnimate').addEventListener('click', startAnimation);
+        document.getElementById('btnReset').addEventListener('click', () => {
+            camera.position.set(80, 60, 80);
+            controls.target.set(50, 0, 50);
+            controls.update();
+        });
+        const textarea = document.getElementById('gcodeInput');
+        textarea.addEventListener('input', () => updateTrajectory(textarea.value));
+        updateTrajectory(textarea.value);
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
